@@ -37,14 +37,19 @@ def decryption(data, key):
 
 def encrypt_file(file_path, key, t):
     try:
+        path = file_path.rsplit('/', 1)[0]
+        file_name = "加密后" + file_path.split('/')[-1]
         if key == '' or key == '请输入密钥,如不输入则随机生成一个16位的密钥':
             key = random_key()
         else:
             key = key
+        with open(path + "/" + "密钥.txt", "w") as f:
+            f.write(key)
         with open(file_path, "rb") as f:
             data = f.read()
         encrypted_data = encryption(data, key)
-        with open(file_path, "wb") as f:
+        new_file_path = path + "/" + file_name
+        with open(new_file_path, "wb") as f:
             f.write(encrypted_data)
             t.config(state=tk.NORMAL)
             t.delete('1.0', tk.END)
@@ -60,7 +65,10 @@ def decrypt_file(file_path, key):
         with open(file_path, "rb") as f:
             data = f.read()
         decrypted_data = decryption(data, key)
-        with open(file_path, "wb") as f:
+        path = file_path.rsplit('/', 1)[0]
+        file_name = "解密后" + file_path.split('/')[-1]
+        new_file_path = path + "/" + file_name
+        with open(new_file_path, "wb") as f:
             f.write(decrypted_data)
             messagebox.showinfo('提示', '解密成功！')
     except Exception:
@@ -91,14 +99,14 @@ def window_mian():
         canvas = tk.Canvas(root, width=512, height=512)
         canvas.pack(fill="both", expand=True)
 
-        # background_image = Image.open('./bg.png')
+        # background_image = Image.open('png/bg.png')
         # bg_image = ImageTk.PhotoImage(background_image)
         # canvas.create_image(0, 0, anchor='nw', image=bg_image)
 
         s_l = tk.Label(root, text="请选择一个文件或保存路径", borderwidth=0, font=("Arial", 12))
         s_l.place(relx=0.5, rely=0.1, anchor='center')
 
-        # icon_image = tk.PhotoImage(file='./img.png')
+        # icon_image = tk.PhotoImage(file='png/img.png')
         # root.iconphoto(True, icon_image)
 
         entry_e = tk.Entry(root, width=50)
