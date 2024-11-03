@@ -1,5 +1,5 @@
 import base64
-from Crypto.Cipher import AES, DES3
+from Crypto.Cipher import AES, DES3, Blowfish
 from Crypto.Util.Padding import pad, unpad
 import tkinter as tk
 from tkinter import filedialog
@@ -48,6 +48,22 @@ def des3_decryption(enc_data, key):
     return decrypted_data
 
 
+def blowfish_encryption(data, key):
+    """blowfish加密"""
+    c_cryption = Blowfish.new(key, Blowfish.MODE_ECB)
+    p_d = pad(data, Blowfish.block_size)
+    c_msg = c_cryption.encrypt(p_d)
+    return c_msg
+
+
+def blowfish_decryption(enc_data, key):
+    d_key = base64.b64decode(key.encode('utf-8'))
+    cipher = Blowfish.new(d_key, Blowfish.MODE_ECB)
+    c = cipher.decrypt(enc_data)
+    decrypted_data = unpad(c, Blowfish.block_size)
+    return decrypted_data
+
+
 def encrypt_file(file_path, mode):
     """加密文件"""
     try:
@@ -58,15 +74,22 @@ def encrypt_file(file_path, mode):
             if mode == "AES":
                 key = aes_key()
                 encrypted_data = aes_encryption(data, key)
+                file_write_mode = "w"
             elif mode == "DES3":
                 key = des3_key()
                 encrypted_data = des3_encryption(data, key)
                 key = base64.b64encode(key).decode('utf-8')
+                file_write_mode = "w"
+            elif mode == "Blowfish":
+                key = blowfish_key()
+                encrypted_data = blowfish_encryption(data, key)
+                key = base64.b64encode(key).decode('utf-8')
+                file_write_mode = "wb"
         with open(path + "/" + "密钥.txt", "w") as f:
             f.write(key)
 
         new_file_path = path + "/" + file_name
-        with open(new_file_path, "w") as f:
+        with open(new_file_path, file_write_mode) as f:
             f.write(encrypted_data)
             messagebox.showinfo('提示', '加密成功！')
     except Exception:
@@ -78,15 +101,21 @@ def decrypt_file(file_path, key, mode):
     try:
         path = file_path.rsplit('/', 1)[0]
         file_name = "解密后的" + file_path.split('/')[-1]
+
         with open(file_path, "rb") as f:
             data = f.read()
             if mode == "AES":
                 decrypted_data = aes_decryption(data, key)
+                file_write_mode = "wb"
             elif mode == "DES3":
                 decrypted_data = des3_decryption(data, key)
+                file_write_mode = "wb"
+            elif mode == "Blowfish":
+                decrypted_data = blowfish_decryption(data, key)
+                file_write_mode = "wb"
 
         new_file_path = path + "/" + file_name
-        with open(new_file_path, "wb") as f:
+        with open(new_file_path, 'wb') as f:
             f.write(decrypted_data)
             messagebox.showinfo('提示', '解密成功！')
     except Exception:
@@ -114,6 +143,10 @@ def des3_key():
     return DES3.adjust_key_parity(os.urandom(24))
 
 
+def blowfish_key():
+    return os.urandom(16)
+
+
 def window_mian():
     """主窗体"""
     try:
@@ -125,13 +158,13 @@ def window_mian():
         canvas = tk.Canvas(root, width=500, height=512)
         canvas.pack(fill="both", expand=True)
 
-        s_l = tk.Label(root, text="请选择一个文件或保存路径", borderwidth=0, font=("Arial", 12))
+        s_l = tk.Label(root, text="", borderwidth=0, font=("Arial", 12))
         s_l.place(relx=0.5, rely=0.15, anchor='center')
 
         m_l = tk.Label(root, text="请选择加密模式：", borderwidth=0, font=("Arial", 15))
         m_l.place(relx=0.38, rely=0.3, anchor='center')
 
-        options = ["AES", "DES3"]
+        options = ["AES", "DES3", "Blowfish"]
         mode_var = tk.StringVar(value=options[0])
         mode_dropdown = tk.OptionMenu(root, mode_var, *options)
         mode_dropdown.config(height=1, font=("Arial", 9))
