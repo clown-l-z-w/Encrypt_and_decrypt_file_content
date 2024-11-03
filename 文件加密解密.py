@@ -17,15 +17,15 @@ def aes_encryption(data, key):
     p_d = pad(data, 16, 'pkcs7')
     c_mode = AES.MODE_ECB
     c_cryption = AES.new(p_k, c_mode)
-    c_msg = base64.b64encode(c_cryption.encrypt(p_d))
-    return c_msg.decode('utf-8')
+    c_msg = c_cryption.encrypt(p_d)
+    return c_msg
 
 
 def aes_decryption(data, key):
     """aes解密"""
     d_key = key.encode('utf-8')
     mode_d = AES.new(pad(d_key, 16, 'pkcs7'), AES.MODE_ECB)
-    msg_d = mode_d.decrypt(base64.b64decode(data))
+    msg_d = mode_d.decrypt(data)
     msg_d = unpad(msg_d, 16, 'pkcs7')
     return msg_d
 
@@ -35,13 +35,12 @@ def des3_encryption(data, key):
     p_d = pad(data, DES3.block_size)
     c_cryption = DES3.new(key, DES3.MODE_ECB)
     c_msg = c_cryption.encrypt(p_d)
-    return base64.b64encode(c_msg).decode('utf-8')
+    return c_msg
 
 
 def des3_decryption(enc_data, key):
     """des3解密"""
     d_key = base64.b64decode(key.encode('utf-8'))
-    enc_data = base64.b64decode(enc_data.decode('utf-8'))
     cipher = DES3.new(d_key, DES3.MODE_ECB)
     c = cipher.decrypt(enc_data)
     decrypted_data = unpad(c, DES3.block_size)
@@ -74,12 +73,12 @@ def encrypt_file(file_path, mode):
             if mode == "AES":
                 key = aes_key()
                 encrypted_data = aes_encryption(data, key)
-                file_write_mode = "w"
+                file_write_mode = "wb"
             elif mode == "DES3":
                 key = des3_key()
                 encrypted_data = des3_encryption(data, key)
                 key = base64.b64encode(key).decode('utf-8')
-                file_write_mode = "w"
+                file_write_mode = "wb"
             elif mode == "Blowfish":
                 key = blowfish_key()
                 encrypted_data = blowfish_encryption(data, key)
@@ -115,7 +114,7 @@ def decrypt_file(file_path, key, mode):
                 file_write_mode = "wb"
 
         new_file_path = path + "/" + file_name
-        with open(new_file_path, 'wb') as f:
+        with open(new_file_path, file_write_mode) as f:
             f.write(decrypted_data)
             messagebox.showinfo('提示', '解密成功！')
     except Exception:
