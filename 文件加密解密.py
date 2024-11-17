@@ -10,9 +10,11 @@ import shutil
 import os
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 
 f_p = ""
@@ -55,6 +57,93 @@ def rsa_key():
     )
     key = kdf.derive(password)
     return key, private_key, salt, password
+
+
+def ecc_key():
+    """生成ecc密钥"""
+    private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
+    iv = os.urandom(16)
+    password = os.urandom(16)
+    salt = os.urandom(16)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+        backend=default_backend()
+    )
+    key = kdf.derive(password)
+    return key, private_key, salt, password, iv
+
+
+def ecc_encryption(data, private_key, key, iv, path):
+    """ecc加密"""
+    ecc_public_key = private_key.public_key()
+    ecc_pee_public_key = serialization.load_pem_public_key(
+        ecc_public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ),
+        backend=default_backend()
+    )
+    ecc_exchange_key = private_key.exchange(ec.ECDH(), ecc_pee_public_key)
+    ecc_cipher = Cipher(
+        algorithm=algorithms.AES(ecc_exchange_key),
+        mode=modes.CTR(iv),
+        backend=default_backend()
+    )
+    ecc_encryptor = ecc_cipher.encryptor()
+    ecc_encrypted_data = ecc_encryptor.update(data) + ecc_encryptor.finalize()
+    ecc_ciphertext = iv + ecc_encrypted_data
+    pem_data = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.BestAvailableEncryption(key)
+    )
+    zip_file(path, b'123456789', ecc_ciphertext, pem_data)
+
+
+def ecc_decryption(en_data_file, key):
+    """ecc解密"""
+    ecc_salt = base64.b64decode(key[0:24].encode('utf-8'))
+    ecc_password = base64.b64decode(key[24:].encode('utf-8'))
+    ecc_kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=ecc_salt,
+        iterations=100000,
+        backend=default_backend()
+    )
+    ecc_kdf_key = ecc_kdf.derive(ecc_password)
+    ecc_extract_file = unzip_file(en_data_file)
+    with open(ecc_extract_file + '/private_key.pem', "rb") as key_file:
+        ecc_private_key = serialization.load_pem_private_key(
+            key_file.read(),
+            password=ecc_kdf_key,
+            backend=default_backend()
+        )
+    with open(ecc_extract_file + '/data', "rb") as main_data:
+        ecc_main_data = main_data.read()
+    ecc_public_key = ecc_private_key.public_key()
+    ecc_peer_public_key = serialization.load_pem_public_key(
+        ecc_public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ),
+        backend=default_backend()
+    )
+    ecc_exchange_key = ecc_private_key.exchange(ec.ECDH(), ecc_peer_public_key)
+    ecc_iv = ecc_main_data[:16]
+    ecc_encrypted_data = ecc_main_data[16:]
+    ecc_cipher = Cipher(
+        algorithm=algorithms.AES(ecc_exchange_key),
+        mode=modes.CTR(ecc_iv),
+        backend=default_backend()
+    )
+    ecc_decrypted = ecc_cipher.decryptor()
+    ecc_decrypted_data = ecc_decrypted.update(ecc_encrypted_data) + ecc_decrypted.finalize()
+    shutil.rmtree(ecc_extract_file)
+    return ecc_decrypted_data
 
 
 def rsa_encryption(data, private_key, key, path):
@@ -110,7 +199,6 @@ def rsa_decryption(data_file, key):
     )
     with open(extract_file + '/data', "rb") as d_f_two:
         encrypted_data = d_f_two.read()
-    mode = 'rsa'
     blowfish_decrypted_data = blowfish_decryption(encrypted_data, decrypted_key)
     shutil.rmtree(extract_file)
     return blowfish_decrypted_data
@@ -181,7 +269,7 @@ def file_name(path, mode):
         new_file_name = path.rsplit('.', 1)[0] + "的密码.txt"
         return new_file_name
     elif mode == "temp":
-        new_file_name = "E:/cc/temp"
+        new_file_name = path.rsplit('/', 1)[0] + "/temp"
         return new_file_name
 
 
@@ -254,7 +342,9 @@ def encrypt_file(file_path, mode):
             elif mode == "DSA":
                 print("DSA加密暂不支持！")
             elif mode == "ECC":
-                print("ECC加密暂不支持！")
+                kdf, private_key, salt, password, iv = ecc_key()
+                ecc_encryption(data, private_key, kdf, iv, file_path)
+                key = base64.b64encode(salt).decode() + base64.b64encode(password).decode()
         if mode == "AES" or mode == "DES3" or mode == "Blowfish":
             encrypted_data_file_name = file_name(file_path, "加密")
             create_file(encrypted_data_file_name, encrypted_data, file_write_mode)
@@ -284,6 +374,11 @@ def decrypt_file(file_path, key, mode):
                 file_write_mode = "wb"
             elif mode == "RSA":
                 decrypted_data = rsa_decryption(file_path, key)
+                file_write_mode = "wb"
+            elif mode == "DSA":
+                print("DSA解密暂不支持！")
+            elif mode == "ECC":
+                decrypted_data = ecc_decryption(file_path, key)
                 file_write_mode = "wb"
         decrypted_data_file_name = file_name(file_path, "解密")
         create_file(decrypted_data_file_name, decrypted_data, file_write_mode)
@@ -319,7 +414,7 @@ def window_mian():
         m_l = tk.Label(root, text="请选择加密模式：", borderwidth=0, font=("Arial", 15))
         m_l.place(relx=0.38, rely=0.3, anchor='center')
 
-        options = ["AES", "DES3", "Blowfish", "RSA"]
+        options = ["AES", "DES3", "Blowfish", "RSA", 'ECC']
         mode_var = tk.StringVar(value=options[0])
         mode_dropdown = tk.OptionMenu(root, mode_var, *options)
         mode_dropdown.config(height=1, font=("Arial", 9))
