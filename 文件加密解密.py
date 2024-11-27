@@ -10,7 +10,7 @@ import shutil
 import os
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, dsa
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import serialization
@@ -76,6 +76,53 @@ def ecc_key():
     return key, private_key, salt, password, iv
 
 
+def dsa_key():
+    """生成dsa密钥"""
+    private_key = dsa.generate_private_key(key_size=2048, backend=default_backend())
+    additional = os.urandom(16)
+    key = des3_key()
+    return key, private_key, additional
+
+
+def dsa_encryption(data, key, private_key, additional, path):
+    """dsa加密"""
+    des3_encrypted_data = des3_encryption(data, key)
+    dsa_data = additional + key
+    dsa_signature = private_key.sign(dsa_data, hashes.SHA256())
+    dsa_key_data = base64.b64encode(key).decode('utf-8') + base64.b64encode(dsa_signature).decode('utf-8')
+    dsa_public_key = private_key.public_key()
+    dsa_public_data = dsa_public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    zip_file(path, dsa_key_data, des3_encrypted_data, dsa_public_data, 'w')
+
+
+def dsa_decryption(en_data_file, additional):
+    """dsa解密"""
+    dsa_additional = base64.b64decode(additional.encode('utf-8'))
+    # dsa_extract_file = unzip_file(en_data_file)
+    with open(en_data_file + '/private_key.pem', 'rb') as en_pem:
+        dsa_public_key = serialization.load_pem_public_key(
+            en_pem.read(),
+            backend=default_backend()
+        )
+    with open(en_data_file + '/data', 'rb') as en_data:
+        des3_data = en_data.read()
+    with open(en_data_file + '/key', 'r') as en_key:
+        dsa_key_data = en_key.read()
+    des3_key_data = base64.b64decode(dsa_key_data[:32].encode('utf-8'))
+    dsa_signature = base64.b64decode(dsa_key_data[32:].encode('utf-8'))
+    dsa_data = dsa_additional + des3_key_data
+
+    if dsa_public_key.verify(dsa_signature, dsa_data, hashes.SHA256()):
+        raise ValueError('dsa signature verification failed')
+    else:
+        des3_decryption_data = des3_decryption(des3_data, dsa_key_data[:32])
+        shutil.rmtree(en_data_file)
+        return des3_decryption_data
+
+
 def ecc_encryption(data, private_key, key, iv, path):
     """ecc加密"""
     ecc_public_key = private_key.public_key()
@@ -100,7 +147,7 @@ def ecc_encryption(data, private_key, key, iv, path):
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.BestAvailableEncryption(key)
     )
-    zip_file(path, b'123456789', ecc_ciphertext, pem_data)
+    zip_file(path, b'123456789', ecc_ciphertext, pem_data, 'wb')
 
 
 def ecc_decryption(en_data_file, key):
@@ -115,14 +162,13 @@ def ecc_decryption(en_data_file, key):
         backend=default_backend()
     )
     ecc_kdf_key = ecc_kdf.derive(ecc_password)
-    ecc_extract_file = unzip_file(en_data_file)
-    with open(ecc_extract_file + '/private_key.pem', "rb") as key_file:
+    with open(en_data_file + '/private_key.pem', "rb") as key_file:
         ecc_private_key = serialization.load_pem_private_key(
             key_file.read(),
             password=ecc_kdf_key,
             backend=default_backend()
         )
-    with open(ecc_extract_file + '/data', "rb") as main_data:
+    with open(en_data_file + '/data', "rb") as main_data:
         ecc_main_data = main_data.read()
     ecc_public_key = ecc_private_key.public_key()
     ecc_peer_public_key = serialization.load_pem_public_key(
@@ -142,7 +188,7 @@ def ecc_decryption(en_data_file, key):
     )
     ecc_decrypted = ecc_cipher.decryptor()
     ecc_decrypted_data = ecc_decrypted.update(ecc_encrypted_data) + ecc_decrypted.finalize()
-    shutil.rmtree(ecc_extract_file)
+    shutil.rmtree(en_data_file)
     return ecc_decrypted_data
 
 
@@ -164,7 +210,7 @@ def rsa_encryption(data, private_key, key, path):
             encryption_algorithm=serialization.BestAvailableEncryption(key)
         )
     handle_data = blowfish_encryption(data, key_data)
-    zip_file(path, encrypted_data, handle_data, pem_data)
+    zip_file(path, encrypted_data, handle_data, pem_data, 'wb')
 
 
 def rsa_decryption(data_file, key):
@@ -179,14 +225,13 @@ def rsa_decryption(data_file, key):
         backend=default_backend()
     )
     decryption_key = decryption_kdf.derive(key_password)
-    extract_file = unzip_file(data_file)
-    with open(extract_file + '/private_key.pem', "rb") as key_file:
+    with open(data_file + '/private_key.pem', "rb") as key_file:
         private_key = serialization.load_pem_private_key(
             key_file.read(),
             password=decryption_key,
             backend=default_backend()
         )
-    with open(extract_file + '/key', "rb") as d_f_one:
+    with open(data_file + '/key', "rb") as d_f_one:
         key_data = d_f_one.read()
 
     decrypted_key = private_key.decrypt(
@@ -197,10 +242,10 @@ def rsa_decryption(data_file, key):
             label=None
         )
     )
-    with open(extract_file + '/data', "rb") as d_f_two:
+    with open(data_file + '/data', "rb") as d_f_two:
         encrypted_data = d_f_two.read()
     blowfish_decrypted_data = blowfish_decryption(encrypted_data, decrypted_key)
-    shutil.rmtree(extract_file)
+    shutil.rmtree(data_file)
     return blowfish_decrypted_data
 
 
@@ -279,13 +324,13 @@ def create_file(path, data, mode):
         f.write(data)
 
 
-def zip_file(main_path, data_key, data_main, data_pem):
+def zip_file(main_path, data_key, data_main, data_pem, m):
     """压缩文件"""
     new_folder_path = file_name(main_path, "加密")
     os.makedirs(new_folder_path, exist_ok=True)
     with open(new_folder_path + "/data", "wb") as f:
         f.write(data_main)
-    with open(new_folder_path + "/key", "wb") as f:
+    with open(new_folder_path + "/key", m) as f:
         f.write(data_key)
     with open(new_folder_path + "/private_key.pem", "wb") as f:
         f.write(data_pem)
@@ -340,7 +385,9 @@ def encrypt_file(file_path, mode):
                 rsa_encryption(data, private_key, kdf, file_path)
                 key = base64.b64encode(salt).decode() + base64.b64encode(password).decode()
             elif mode == "DSA":
-                print("DSA加密暂不支持！")
+                key, private_key, additional = dsa_key()
+                dsa_encryption(data, key, private_key, additional, file_path)
+                key = base64.b64encode(additional).decode('utf-8')
             elif mode == "ECC":
                 kdf, private_key, salt, password, iv = ecc_key()
                 ecc_encryption(data, private_key, kdf, iv, file_path)
@@ -373,17 +420,22 @@ def decrypt_file(file_path, key, mode):
                 decrypted_data = blowfish_decryption(data, d_key)
                 file_write_mode = "wb"
             elif mode == "RSA":
-                decrypted_data = rsa_decryption(file_path, key)
+                extract_path = unzip_file(file_path)
+                decrypted_data = rsa_decryption(extract_path, key)
                 file_write_mode = "wb"
             elif mode == "DSA":
-                print("DSA解密暂不支持！")
+                extract_path = unzip_file(file_path)
+                decrypted_data = dsa_decryption(extract_path, key)
+                file_write_mode = "wb"
             elif mode == "ECC":
-                decrypted_data = ecc_decryption(file_path, key)
+                extract_path = unzip_file(file_path)
+                decrypted_data = ecc_decryption(extract_path, key)
                 file_write_mode = "wb"
         decrypted_data_file_name = file_name(file_path, "解密")
         create_file(decrypted_data_file_name, decrypted_data, file_write_mode)
         messagebox.showinfo('提示', '解密成功！')
     except Exception:
+        shutil.rmtree(extract_path)
         raise messagebox.showerror('错误', '解密失败！请检查文件路径！')
 
 
@@ -414,7 +466,7 @@ def window_mian():
         m_l = tk.Label(root, text="请选择加密模式：", borderwidth=0, font=("Arial", 15))
         m_l.place(relx=0.38, rely=0.3, anchor='center')
 
-        options = ["AES", "DES3", "Blowfish", "RSA", 'ECC']
+        options = ["AES", "DES3", "Blowfish", "RSA", 'ECC', 'DSA']
         mode_var = tk.StringVar(value=options[0])
         mode_dropdown = tk.OptionMenu(root, mode_var, *options)
         mode_dropdown.config(height=1, font=("Arial", 9))
